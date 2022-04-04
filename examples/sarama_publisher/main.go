@@ -34,30 +34,33 @@ func main() {
 
 	p, err := kafka.NewSaramaPublisher(config, logger)
 	if err != nil {
-		logger.Error(err.Error())
-	}
+		logger.Error(err)
+	} else {
+		logger.Info("start publishing...")
 
-	logger.Info("start publishing...")
+	PublishLoop:
+		for i := 0; ; i++ {
+			msg := fakeData(ctx, i)
+			err := p.Publish(topic, msg)
+			if err != nil {
+				logger.Error(err)
+				break PublishLoop
+			}
 
-PublishLoop:
-	for i := 0; ; i++ {
-		groupID := "user1"
-		metadata := make(map[string]string, 0)
-		metadata[kafka.KeySaramaGroupID] = groupID // to let same groupID message go to same partition
-		payload := []byte(fmt.Sprintf("data%d", i))
+			logger.Info("send msg: ", string(msg.Payload))
 
-		msg := kafka.NewMessage(ctx, payload, metadata)
-
-		err := p.Publish(topic, msg)
-		if err != nil {
-			logger.Error(err)
-			break PublishLoop
+			time.Sleep(1 * time.Second)
 		}
-
-		logger.Info("send msg: ", string(msg.Payload))
-
-		time.Sleep(1 * time.Second)
 	}
 
 	p.Close()
+}
+
+func fakeData(ctx context.Context, i int) *kafka.Message {
+	groupID := "user1"
+	metadata := make(map[string]string, 0)
+	metadata[kafka.KeySaramaGroupID] = groupID // to let same groupID message go to same partition
+	payload := []byte(fmt.Sprintf("data%d", i))
+
+	return kafka.NewMessage(ctx, payload, metadata)
 }

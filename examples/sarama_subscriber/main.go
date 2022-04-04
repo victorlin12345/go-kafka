@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 	"github.com/victorlin12345/go-kafka/pkg/pubsub/kafka"
 )
 
@@ -23,27 +24,36 @@ func main() {
 
 	s, err := kafka.NewSaramaSubscriber(config, logger)
 	if err != nil {
-		err = fmt.Errorf("fail to new sarama subscriber:%w", err)
-		logger.Error(err.Error())
-	}
+		logger.Error(err)
+	} else {
 
-	log.Info("start subscribing...")
+		logger.Info("start subscribing...")
 
-	msgs, err := s.Subscribe(ctx, topic)
-	if err != nil {
-		err = fmt.Errorf("fail subscribing:%w", err)
-		log.Error(err.Error())
-	}
-	for {
-		select {
-		case msg := <-msgs:
-			payload := string(msg.GetPayload())
-			groupID := msg.GetMetaData()[kafka.KeySaramaGroupID]
-			partition := msg.GetMetaData()[kafka.KeySaramaPartition]
-			offset := msg.GetMetaData()[kafka.KeySaramaOffset]
+		msgs, err := s.Subscribe(ctx, topic)
+		if err != nil {
+			logger.Error(err)
+		}
 
-			logger.Info(fmt.Sprintf("msg: %s groupId: %s partition: %s offset %s", payload, groupID, partition, offset))
-			msg.Ack()
+	ConsumeLoop:
+		for {
+			select {
+			case msg := <-msgs:
+				if msg == nil {
+					break ConsumeLoop
+				}
+				payload, groupID, partition, offset := getInfo(msg)
+				logger.Info(fmt.Sprintf("msg: %s groupId: %s partition: %s offset %s", payload, groupID, partition, offset))
+				msg.Ack()
+			}
 		}
 	}
+}
+
+func getInfo(msg pubsub.Message) (payload string, groupID string, partition string, offset string) {
+	payload = string(msg.GetPayload())
+	groupID = msg.GetMetaData()[kafka.KeySaramaGroupID]
+	partition = msg.GetMetaData()[kafka.KeySaramaPartition]
+	offset = msg.GetMetaData()[kafka.KeySaramaOffset]
+
+	return
 }

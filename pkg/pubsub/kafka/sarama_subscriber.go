@@ -44,12 +44,14 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 		client:        client,
 		consumerGroup: consumerGroup,
 		output:        make(chan pubsub.Message, 0),
+		closing:       make(chan struct{}),
+		wg:            sync.WaitGroup{},
 		logger:        logger,
 	}, nil
 }
 
 func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
-	handler := newConsumerGroupHandler(ctx, s.output, s.closing)
+	handler := newConsumerGroupHandler(ctx, s.output, s.closing, s.logger)
 
 	s.wg.Add(1)
 
@@ -70,9 +72,10 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 		case <-s.closing:
 			s.closingProcess()
 			s.wg.Done()
+
 		case <-ctx.Done():
 			s.closingProcess()
-
+			log.Info("subscriber closed")
 		}
 	}()
 
@@ -80,19 +83,34 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 }
 
 func (s *saramaSubscriber) closingProcess() {
-	// cg.Close() do just once
+	// consumerGroup.Close() do just once
 	if err := s.consumerGroup.Close(); err != nil {
-		log.Error(err.Error())
+		s.logger.Error(err)
 	}
+	s.logger.Info("consumer group closed")
+
 	if !s.client.Closed() {
 		if err := s.client.Close(); err != nil {
-			log.Error(err.Error())
+			s.logger.Error(err)
 		}
 	}
+	s.logger.Info("client closed")
+
+	close(s.output)
+	s.logger.Info("output closed")
 }
 
-func newConsumerGroupHandler(ctx context.Context, output chan pubsub.Message, closing chan struct{}) *consumerGroupHandler {
-	return &consumerGroupHandler{ctx: ctx, output: output, closing: closing}
+func newConsumerGroupHandler(ctx context.Context,
+	output chan pubsub.Message,
+	closing chan struct{},
+	logger *log.Logger,
+) *consumerGroupHandler {
+	return &consumerGroupHandler{
+		ctx:     ctx,
+		output:  output,
+		closing: closing,
+		logger:  logger,
+	}
 }
 
 type consumerGroupHandler struct {
@@ -101,6 +119,7 @@ type consumerGroupHandler struct {
 	closing chan struct{}
 	wg      sync.WaitGroup
 	timeout time.Duration
+	logger  *log.Logger
 }
 
 func (h consumerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error { return nil }
@@ -113,18 +132,28 @@ SendToOutput:
 	for {
 		select {
 		case <-h.closing:
+			h.logger.Info("stop consume claim")
 			h.wg.Done()
 			break SendToOutput
+
 		case <-h.ctx.Done():
+			h.logger.Info("stop consume claim")
 			h.wg.Done()
 			break SendToOutput
-		case kafkaMsg := <-claim.Messages():
-			msg := NewMessageBySaramaConsumerMessage(kafkaMsg)
-			h.output <- msg
-			err := h.waitAckOrNack(sess, kafkaMsg, msg.Acked(), msg.Nacked())
-			if err != nil {
+
+		case kafkaMsg, ok := <-claim.Messages():
+			if !ok {
 				h.wg.Done()
 				break SendToOutput
+			}
+
+			msg := NewMessageBySaramaConsumerMessage(kafkaMsg)
+			h.output <- msg
+
+			if err := h.waitAckOrNack(sess, kafkaMsg, msg.Acked(), msg.Nacked()); err != nil {
+				h.wg.Done()
+				break SendToOutput
+
 			}
 		}
 	}
@@ -139,7 +168,6 @@ func (h consumerGroupHandler) waitAckOrNack(
 	msg *sarama.ConsumerMessage,
 	acked <-chan struct{},
 	nacked <-chan struct{}) error {
-
 	select {
 	case <-h.closing:
 		return ErrCancelAckOrNack
@@ -157,6 +185,6 @@ func (h consumerGroupHandler) waitAckOrNack(
 func (s *saramaSubscriber) Close() error {
 	close(s.closing)
 	s.wg.Wait()
-	log.Info("close")
+	log.Info("subscriber closed")
 	return nil
 }
