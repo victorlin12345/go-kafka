@@ -3,30 +3,23 @@ package kafka
 import (
 	"context"
 	"sync"
-
-	"github.com/Shopify/sarama"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 )
-
-func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) pubsub.Message {
-	metadata := make(map[string]string, len(msg.Headers))
-
-	for _, h := range msg.Headers {
-		metadata[string(h.Key)] = string(h.Value)
-	}
-
-	return &Message{
-		Payload:  msg.Value,
-		Metadata: metadata,
-		ack:      make(chan struct{}),
-		nack:     make(chan struct{}),
-	}
-}
 
 var closedchan = make(chan struct{})
 
 func init() {
 	close(closedchan)
+}
+
+func NewMessage(ctx context.Context, payload []byte, metadata map[string]string) *Message {
+	return &Message{
+		ctx:         ctx,
+		ack:         make(chan struct{}),
+		nack:        make(chan struct{}),
+		ackSentType: unsent,
+		Payload:     payload,
+		Metadata:    metadata,
+	}
 }
 
 type Message struct {
@@ -119,13 +112,10 @@ func (m *Message) SetPayload(payload []byte) {
 	m.Payload = payload
 }
 
-func (m *Message) GetMetaData(k string) string {
-	if v, ok := m.Metadata[k]; ok {
-		return v
-	}
-	return ""
+func (m *Message) GetMetaData() map[string]string {
+	return m.Metadata
 }
 
-func (m *Message) SetMetaData(k string, v string) {
-	m.Metadata[k] = v
+func (m *Message) SetMetaData(mp map[string]string) {
+	m.Metadata = mp
 }

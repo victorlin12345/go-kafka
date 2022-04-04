@@ -26,6 +26,6 @@ type Message interface {
 	GetPayload() []byte
 	SetPayload(b []byte)
 
-	GetMetaData(key string) string
-	SetMetaData(key string, value string)
+	GetMetaData() map[string]string
+	SetMetaData(mp map[string]string)
 }

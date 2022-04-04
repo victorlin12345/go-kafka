@@ -7,53 +7,57 @@ import (
 	"sync"
 	"time"
 
-	"log"
-
 	"github.com/Shopify/sarama"
+	log "github.com/sirupsen/logrus"
 	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 )
 
 type saramaSubscriber struct {
-	config  SaramaSubscriberConfig
-	output  chan pubsub.Message
-	closing chan struct{}
-	wg      sync.WaitGroup
+	config        SaramaSubscriberConfig
+	client        sarama.Client
+	consumerGroup sarama.ConsumerGroup
+	output        chan pubsub.Message
+	closing       chan struct{}
+	wg            sync.WaitGroup
+	logger        *log.Logger
 }
 
-func NewSaramaSubscriber(config SaramaSubscriberConfig) *saramaSubscriber {
-	if config.OverwriteSaramaConfig == nil {
-		config.setDefault()
-	}
-	return &saramaSubscriber{
-		config: config,
-		output: make(chan pubsub.Message, 0),
-	}
-}
+func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*saramaSubscriber, error) {
+	config.setDefault()
 
-func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
-	c, err := sarama.NewClient(s.config.Brokers, s.config.OverwriteSaramaConfig)
+	if err := config.validate(); err != nil {
+		return nil, err
+	}
+
+	client, err := sarama.NewClient(config.Brokers, config.OverwriteSaramaConfig)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create client:%w", err)
 	}
 
-	if s.config.ConsumerGroup == "" {
-		return nil, fmt.Errorf("consumer group is nil")
-	}
-
-	cg, err := sarama.NewConsumerGroupFromClient(s.config.ConsumerGroup, c)
+	consumerGroup, err := sarama.NewConsumerGroupFromClient(config.ConsumerGroup, client)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create consumer group:%w", err)
 	}
 
+	return &saramaSubscriber{
+		config:        config,
+		client:        client,
+		consumerGroup: consumerGroup,
+		output:        make(chan pubsub.Message, 0),
+		logger:        logger,
+	}, nil
+}
+
+func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
 	handler := newConsumerGroupHandler(ctx, s.output, s.closing)
 
 	s.wg.Add(1)
 
 	// start consuming
 	go func() {
-		err := cg.Consume(ctx, []string{topic}, handler)
+		err := s.consumerGroup.Consume(ctx, []string{topic}, handler)
 		if err != nil {
-			log.Fatal(err)
+			log.Error(err.Error())
 			close(s.closing)
 		}
 	}()
@@ -64,26 +68,27 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 
 		select {
 		case <-s.closing:
-			s.closingProcess(c, cg)
+			s.closingProcess()
+			s.wg.Done()
 		case <-ctx.Done():
-			s.closingProcess(c, cg)
+			s.closingProcess()
+
 		}
 	}()
 
 	return s.output, nil
 }
 
-func (s *saramaSubscriber) closingProcess(c sarama.Client, cg sarama.ConsumerGroup) {
+func (s *saramaSubscriber) closingProcess() {
 	// cg.Close() do just once
-	if err := cg.Close(); err != nil {
-		log.Fatalln(err)
+	if err := s.consumerGroup.Close(); err != nil {
+		log.Error(err.Error())
 	}
-	if !c.Closed() {
-		if err := c.Close(); err != nil {
-			log.Fatalln(err)
+	if !s.client.Closed() {
+		if err := s.client.Close(); err != nil {
+			log.Error(err.Error())
 		}
 	}
-	s.wg.Done()
 }
 
 func newConsumerGroupHandler(ctx context.Context, output chan pubsub.Message, closing chan struct{}) *consumerGroupHandler {
@@ -152,6 +157,6 @@ func (h consumerGroupHandler) waitAckOrNack(
 func (s *saramaSubscriber) Close() error {
 	close(s.closing)
 	s.wg.Wait()
-	fmt.Println("closed")
+	log.Info("close")
 	return nil
 }
