@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Shopify/sarama"
@@ -12,6 +14,8 @@ type saramaPublisher struct {
 	config   SaramaPublisherConfig
 	producer sarama.SyncProducer
 	logger   *log.Logger
+	closing  chan struct{}
+	closed   bool
 }
 
 // NewPublisher creates a new Kafka Publisher.
@@ -31,10 +35,25 @@ func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (pubsu
 		config:   config,
 		producer: producer,
 		logger:   logger,
+		closing:  make(chan struct{}),
 	}, nil
 }
 
-func (p *saramaPublisher) Publish(topic string, messages ...pubsub.Message) error {
+var ErrSaramaProducerClosed = errors.New("sarama producer closed")
+
+func (p *saramaPublisher) Publish(ctx context.Context, topic string, messages ...pubsub.Message) error {
+	if p.closed {
+		return ErrSaramaProducerClosed
+	}
+
+	select {
+	case <-p.closing:
+		return ErrSaramaProducerClosed
+	case <-ctx.Done():
+		return ErrSaramaProducerClosed
+	default:
+	}
+
 	for _, msg := range messages {
 		kafkaMsg, err := NewSaramaProducerMessage(topic, msg)
 		if err != nil {
@@ -52,8 +71,16 @@ func (p *saramaPublisher) Publish(topic string, messages ...pubsub.Message) erro
 }
 
 func (p *saramaPublisher) Close() error {
+	if p.closed {
+		return nil
+	}
+	close(p.closing)
+	p.closed = true
+
 	if err := p.producer.Close(); err != nil {
 		return fmt.Errorf("cannot close Kafka producer:%w", err)
 	}
+
+	p.logger.Info("publisher closed")
 	return nil
 }

@@ -3,7 +3,7 @@ package pubsub
 import "context"
 
 type Publisher interface {
-	Publish(topic string, messages ...Message) error
+	Publish(ctx context.Context, topic string, messages ...Message) error
 	Close() error
 }
 type Subscriber interface {

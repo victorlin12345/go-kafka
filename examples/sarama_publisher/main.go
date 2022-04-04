@@ -41,8 +41,11 @@ func main() {
 	PublishLoop:
 		for i := 0; ; i++ {
 			msg := fakeData(ctx, i)
-			err := p.Publish(topic, msg)
+			err := p.Publish(ctx, topic, msg)
 			if err != nil {
+				if err == kafka.ErrSaramaProducerClosed {
+					break PublishLoop
+				}
 				logger.Error(err)
 				break PublishLoop
 			}
@@ -53,7 +56,7 @@ func main() {
 		}
 	}
 
-	p.Close()
+	// p.Close()
 }
 
 func fakeData(ctx context.Context, i int) *kafka.Message {

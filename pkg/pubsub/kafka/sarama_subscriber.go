@@ -18,6 +18,7 @@ type saramaSubscriber struct {
 	consumerGroup sarama.ConsumerGroup
 	output        chan pubsub.Message
 	closing       chan struct{}
+	closed        bool
 	wg            sync.WaitGroup
 	logger        *log.Logger
 }
@@ -50,7 +51,13 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 	}, nil
 }
 
+var ErrClosedSubscriber = errors.New("closed subscriber")
+
 func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
+	if s.closed {
+		return nil, ErrClosedSubscriber
+	}
+
 	handler := newConsumerGroupHandler(ctx, s.output, s.closing, s.logger)
 
 	s.wg.Add(1)
@@ -183,7 +190,12 @@ func (h consumerGroupHandler) waitAckOrNack(
 }
 
 func (s *saramaSubscriber) Close() error {
+	if s.closed {
+		return nil
+	}
 	close(s.closing)
+	s.closed = true
+
 	s.wg.Wait()
 	log.Info("subscriber closed")
 	return nil
