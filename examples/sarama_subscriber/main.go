@@ -24,6 +24,7 @@ func main() {
 	logger := log.New()
 
 	s, err := kafka.NewSaramaSubscriber(config, logger)
+	defer s.Close()
 
 	// Ctrl C to graceful shutdown
 	ch := make(chan os.Signal, 1)
