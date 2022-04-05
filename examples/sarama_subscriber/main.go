@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
@@ -21,6 +24,15 @@ func main() {
 	logger := log.New()
 
 	s, err := kafka.NewSaramaSubscriber(config, logger)
+
+	// Ctrl C to graceful shutdown
+	ch := make(chan os.Signal, 1)
+	go func() {
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		<-ch
+		s.Close()
+	}()
+
 	if err != nil {
 		logger.Error(err)
 	} else {

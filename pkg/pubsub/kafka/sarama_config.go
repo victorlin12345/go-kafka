@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"errors"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -26,11 +25,11 @@ func (c *SaramaSubscriberConfig) setDefault() {
 
 func (c SaramaSubscriberConfig) validate() error {
 	if len(c.Brokers) == 0 {
-		return errors.New("missing brokers")
+		return RequireBrokersError
 	}
 
 	if c.ConsumerGroup == "" {
-		return errors.New("missing consumer group")
+		return RequireConsumerGroupError
 	}
 
 	return nil
@@ -71,7 +70,7 @@ func DefaultSaramaPublisherConfig() *sarama.Config {
 
 func (c SaramaPublisherConfig) validate() error {
 	if len(c.Brokers) == 0 {
-		return errors.New("missing brokers")
+		return RequireBrokersError
 	}
 
 	return nil

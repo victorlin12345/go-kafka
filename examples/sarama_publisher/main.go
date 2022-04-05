@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -26,6 +29,14 @@ func main() {
 
 	p, err := kafka.NewSaramaPublisher(config, logger)
 	defer p.Close()
+
+	// Ctrl C to graceful shutdown
+	ch := make(chan os.Signal, 1)
+	go func() {
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		<-ch
+		p.Close()
+	}()
 
 	if err != nil {
 		logger.Error(err)

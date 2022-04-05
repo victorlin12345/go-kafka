@@ -28,6 +28,8 @@ docker exec -it broker1 bash
 cd opt/kafka/bin
 
 bash kafka-topics.sh --zookeeper zookeeper:2181 --create --topic [TOPIC] --partitions [PARTITIONS] --replication-factor [REPLICAS] --if-not-exists
+
+exit
 ```
 
 - sarama example

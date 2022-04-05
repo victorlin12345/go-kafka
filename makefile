@@ -2,7 +2,7 @@
 local.kafka.up:
 	docker compose up -d
 .PHONY: local.kafka.down
-local.kafka.up:
+local.kafka.down:
 	docker compose down
 
 # TODO: create a topic
@@ -10,8 +10,8 @@ local.kafka.up:
 
 .PHONY: ex.sarama.sub.run
 ex.sarama.sub.run:
-	go run examples/sarama_subscriber/main.go
+	-go run examples/sarama_subscriber/main.go
 .PHONY: ex.sarama.pub.run
 ex.sarama.pub.run:
-	go run examples/sarama_publisher/main.go
+	-go run examples/sarama_publisher/main.go
 
