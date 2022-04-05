@@ -13,8 +13,6 @@ import (
 func main() {
 	ctx := context.Background()
 
-	topic := "test"
-
 	config := kafka.SaramaSubscriberConfig{
 		Brokers:       []string{"localhost:9091", "localhost:9092"},
 		ConsumerGroup: "cg1",
@@ -26,9 +24,9 @@ func main() {
 	if err != nil {
 		logger.Error(err)
 	} else {
-
 		logger.Info("start subscribing...")
 
+		topic := "test"
 		msgs, err := s.Subscribe(ctx, topic)
 		if err != nil {
 			logger.Error(err)

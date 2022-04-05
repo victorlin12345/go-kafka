@@ -2,10 +2,8 @@ package kafka
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
@@ -46,16 +44,13 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 		consumerGroup: consumerGroup,
 		output:        make(chan pubsub.Message, 0),
 		closing:       make(chan struct{}),
-		wg:            sync.WaitGroup{},
 		logger:        logger,
 	}, nil
 }
 
-var ErrClosedSubscriber = errors.New("closed subscriber")
-
 func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
 	if s.closed {
-		return nil, ErrClosedSubscriber
+		return nil, SubscriberClosedError
 	}
 
 	handler := newConsumerGroupHandler(ctx, s.output, s.closing, s.logger)
@@ -125,7 +120,6 @@ type consumerGroupHandler struct {
 	output  chan pubsub.Message
 	closing chan struct{}
 	wg      sync.WaitGroup
-	timeout time.Duration
 	logger  *log.Logger
 }
 
@@ -135,22 +129,21 @@ func (h consumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { ret
 
 func (h consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	h.wg.Add(1)
+	defer h.wg.Done()
+
 SendToOutput:
 	for {
 		select {
 		case <-h.closing:
 			h.logger.Info("stop consume claim")
-			h.wg.Done()
 			break SendToOutput
 
 		case <-h.ctx.Done():
 			h.logger.Info("stop consume claim")
-			h.wg.Done()
 			break SendToOutput
 
 		case kafkaMsg, ok := <-claim.Messages():
 			if !ok {
-				h.wg.Done()
 				break SendToOutput
 			}
 
@@ -158,17 +151,13 @@ SendToOutput:
 			h.output <- msg
 
 			if err := h.waitAckOrNack(sess, kafkaMsg, msg.Acked(), msg.Nacked()); err != nil {
-				h.wg.Done()
 				break SendToOutput
-
 			}
 		}
 	}
 
 	return nil
 }
-
-var ErrCancelAckOrNack error = errors.New("cancel ack or nack")
 
 func (h consumerGroupHandler) waitAckOrNack(
 	sess sarama.ConsumerGroupSession,
@@ -177,9 +166,9 @@ func (h consumerGroupHandler) waitAckOrNack(
 	nacked <-chan struct{}) error {
 	select {
 	case <-h.closing:
-		return ErrCancelAckOrNack
+		return CancelMessageAckOrNackError
 	case <-h.ctx.Done():
-		return ErrCancelAckOrNack
+		return CancelMessageAckOrNackError
 	case <-acked:
 		sess.MarkMessage(msg, "")
 	case <-nacked:

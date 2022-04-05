@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/Shopify/sarama"
@@ -39,18 +38,16 @@ func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (pubsu
 	}, nil
 }
 
-var ErrSaramaProducerClosed = errors.New("sarama producer closed")
-
 func (p *saramaPublisher) Publish(ctx context.Context, topic string, messages ...pubsub.Message) error {
 	if p.closed {
-		return ErrSaramaProducerClosed
+		return ProducerClosedError
 	}
 
 	select {
 	case <-p.closing:
-		return ErrSaramaProducerClosed
+		return ProducerClosedError
 	case <-ctx.Done():
-		return ErrSaramaProducerClosed
+		return ProducerClosedError
 	default:
 	}
 

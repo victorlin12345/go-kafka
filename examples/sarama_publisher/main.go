@@ -10,21 +10,13 @@ import (
 	"github.com/victorlin12345/go-kafka/pkg/pubsub/kafka"
 )
 
-func init() {
-
-}
-
 func main() {
-
 	ctx := context.Background()
-
-	topic := "test"
 
 	saramaConfig := sarama.NewConfig()
 	saramaConfig.Producer.Retry.Max = 10
 	saramaConfig.Producer.Return.Successes = true
 	saramaConfig.Producer.Partitioner = sarama.NewHashPartitioner // keep order right with same groupKey of messages
-
 	config := kafka.SaramaPublisherConfig{
 		Brokers:               []string{"localhost:9091", "localhost:9092"},
 		OverwriteSaramaConfig: saramaConfig,
@@ -33,17 +25,20 @@ func main() {
 	logger := log.New()
 
 	p, err := kafka.NewSaramaPublisher(config, logger)
+	defer p.Close()
+
 	if err != nil {
 		logger.Error(err)
 	} else {
 		logger.Info("start publishing...")
 
+		topic := "test"
 	PublishLoop:
 		for i := 0; ; i++ {
 			msg := fakeData(ctx, i)
 			err := p.Publish(ctx, topic, msg)
 			if err != nil {
-				if err == kafka.ErrSaramaProducerClosed {
+				if err == kafka.ProducerClosedError {
 					break PublishLoop
 				}
 				logger.Error(err)
@@ -55,8 +50,6 @@ func main() {
 			time.Sleep(1 * time.Second)
 		}
 	}
-
-	// p.Close()
 }
 
 func fakeData(ctx context.Context, i int) *kafka.Message {
