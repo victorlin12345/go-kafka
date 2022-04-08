@@ -9,8 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/victorlin12345/go-kafka/pkg/pubsub"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub/kafka"
+	"github.com/victorlin12345/go-kafka/pkg/kafka"
 )
 
 func main() {
@@ -52,15 +51,19 @@ func main() {
 				if msg == nil {
 					break ConsumeLoop
 				}
-				payload, groupID, partition, offset := getInfo(msg)
-				logger.Info(fmt.Sprintf("msg: %s groupId: %s partition: %s offset %s", payload, groupID, partition, offset))
-				msg.Ack()
+				if msg.GetError() == nil {
+					payload, groupID, partition, offset := getInfo(msg)
+					logger.Info(fmt.Sprintf("msg: %s groupId: %s partition: %s offset %s", payload, groupID, partition, offset))
+					msg.Ack()
+				} else {
+					log.Info("Error:", msg.GetError())
+				}
 			}
 		}
 	}
 }
 
-func getInfo(msg pubsub.Message) (payload string, groupID string, partition string, offset string) {
+func getInfo(msg kafka.Message) (payload string, groupID string, partition string, offset string) {
 	payload = string(msg.GetPayload())
 	groupID = msg.GetMetaData()[kafka.KeySaramaGroupID]
 	partition = msg.GetMetaData()[kafka.KeySaramaPartition]

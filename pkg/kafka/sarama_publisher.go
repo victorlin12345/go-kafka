@@ -3,22 +3,22 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 )
 
 type saramaPublisher struct {
 	config   SaramaPublisherConfig
 	producer sarama.SyncProducer
 	logger   *log.Logger
-	closing  chan struct{}
 	closed   bool
+	mutex    sync.Mutex
 }
 
 // NewPublisher creates a new Kafka Publisher.
-func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (pubsub.Publisher, error) {
+func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (Publisher, error) {
 	config.setDefault()
 
 	if err := config.validate(); err != nil {
@@ -34,44 +34,50 @@ func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (pubsu
 		config:   config,
 		producer: producer,
 		logger:   logger,
-		closing:  make(chan struct{}),
 	}, nil
 }
 
-func (p *saramaPublisher) Publish(ctx context.Context, topic string, messages ...pubsub.Message) error {
+func (p *saramaPublisher) Publish(ctx context.Context, topic string, message Message) (Message, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	if p.closed {
-		return ProducerClosedError
+		return nil, ProducerClosedError
 	}
 
+	// for context cancel
 	select {
-	case <-p.closing:
-		return ProducerClosedError
 	case <-ctx.Done():
-		return ProducerClosedError
+		return nil, ProducerClosedError
 	default:
 	}
 
-	for _, msg := range messages {
-		kafkaMsg, err := NewSaramaProducerMessage(topic, msg)
-		if err != nil {
-			return fmt.Errorf("cannot marshal to kafka message:%w", err)
-		}
-
-		partition, offset, err := p.producer.SendMessage(kafkaMsg)
-		if err != nil {
-			return fmt.Errorf("cannot produce message:%w", err)
-		}
-		p.logger.Trace("partition:", partition, "offset:", offset)
+	kafkaMsg, err := NewSaramaProducerMessage(topic, message)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal to kafka message:%w", err)
 	}
 
-	return nil
+	partition, offset, err := p.producer.SendMessage(kafkaMsg)
+	if err != nil {
+		return nil, fmt.Errorf("cannot produce message:%w", err)
+	}
+
+	message.SetTopic(topic)
+	message.SetPartition(partition)
+	message.SetOffset(offset)
+
+	p.logger.Trace("topic:", topic, " partition:", partition, " offset:", offset)
+
+	return message, nil
 }
 
 func (p *saramaPublisher) Close() error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	if p.closed {
 		return nil
 	}
-	close(p.closing)
 	p.closed = true
 
 	if err := p.producer.Close(); err != nil {

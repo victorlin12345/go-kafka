@@ -4,7 +4,6 @@ import (
 	"strconv"
 
 	"github.com/Shopify/sarama"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 )
 
 const (
@@ -15,7 +14,7 @@ const (
 	KeySaramaTimestamp string = "SaramaMessageTimestamp"
 )
 
-func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) pubsub.Message {
+func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) Message {
 	metadata := make(map[string]string, len(msg.Headers))
 	metadata[KeySaramaTopic] = msg.Topic
 	metadata[KeySaramaPartition] = strconv.FormatInt(int64(msg.Partition), 10)
@@ -26,7 +25,7 @@ func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) pubsub.Messa
 		metadata[string(h.Key)] = string(h.Value)
 	}
 
-	return &Message{
+	return &message{
 		Payload:  msg.Value,
 		Metadata: metadata,
 		ack:      make(chan struct{}),
@@ -34,7 +33,7 @@ func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) pubsub.Messa
 	}
 }
 
-func NewSaramaProducerMessage(topic string, msg pubsub.Message) (*sarama.ProducerMessage, error) {
+func NewSaramaProducerMessage(topic string, msg Message) (*sarama.ProducerMessage, error) {
 
 	var groupID sarama.Encoder
 

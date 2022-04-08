@@ -4,17 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub"
 )
 
 type saramaSubscriber struct {
 	config        SaramaSubscriberConfig
 	client        sarama.Client
 	consumerGroup sarama.ConsumerGroup
-	output        chan pubsub.Message
+	output        chan Message
 	closing       chan struct{}
 	closed        bool
 	wg            sync.WaitGroup
@@ -42,13 +42,13 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 		config:        config,
 		client:        client,
 		consumerGroup: consumerGroup,
-		output:        make(chan pubsub.Message, 0),
+		output:        make(chan Message, 0),
 		closing:       make(chan struct{}),
 		logger:        logger,
 	}, nil
 }
 
-func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan pubsub.Message, error) {
+func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan Message, error) {
 	if s.closed {
 		return nil, SubscriberClosedError
 	}
@@ -58,13 +58,9 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 	s.wg.Add(1)
 
 	// start consuming
-	go func() {
-		err := s.consumerGroup.Consume(ctx, []string{topic}, handler)
-		if err != nil {
-			log.Error(err.Error())
-			close(s.closing)
-		}
-	}()
+	go s.consumingProcess(ctx, topic, handler)
+
+	go s.handleConsumeError(ctx)
 
 	// graceful shutdown
 	go func() {
@@ -82,6 +78,56 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 	}()
 
 	return s.output, nil
+}
+
+func (s *saramaSubscriber) consumingProcess(ctx context.Context, topic string, handler *consumerGroupHandler) {
+	// consumerGroup.Consume need to run in an infinte loop (ReconnectLoop)
+	// for server-side rebalance happens.
+ReconnectLoop:
+	for {
+		select {
+		case <-s.closing:
+			handler.wg.Wait()
+			s.logger.Info("close called, leave reconnect loop")
+			break ReconnectLoop
+
+		case <-ctx.Done():
+			handler.wg.Wait()
+			s.logger.Info("context cancelled, leave reconnect loop")
+			break ReconnectLoop
+		default:
+			// pass
+		}
+
+		err := s.consumerGroup.Consume(ctx, []string{topic}, handler)
+		if err != nil {
+			log.Error(err.Error())
+		}
+		// default: 1 second to retry
+		time.Sleep(s.config.ReconnectRetrySleep)
+		s.logger.Info("reconnecting")
+	}
+}
+
+func (s *saramaSubscriber) handleConsumeError(ctx context.Context) {
+	errs := s.consumerGroup.Errors()
+ErrorLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break ErrorLoop
+		case <-s.closing:
+			break ErrorLoop
+		case err := <-errs:
+			if err == nil {
+				continue
+			}
+			msg := NewMessage(ctx, []byte("error"))
+			msg.SetError(err)
+			s.output <- msg
+			// s.logger.Error("sarama internal error:", err)
+		}
+	}
 }
 
 func (s *saramaSubscriber) closingProcess() {
@@ -103,7 +149,7 @@ func (s *saramaSubscriber) closingProcess() {
 }
 
 func newConsumerGroupHandler(ctx context.Context,
-	output chan pubsub.Message,
+	output chan Message,
 	closing chan struct{},
 	logger *log.Logger,
 ) *consumerGroupHandler {
@@ -117,7 +163,7 @@ func newConsumerGroupHandler(ctx context.Context,
 
 type consumerGroupHandler struct {
 	ctx     context.Context
-	output  chan pubsub.Message
+	output  chan Message
 	closing chan struct{}
 	wg      sync.WaitGroup
 	logger  *log.Logger
@@ -135,11 +181,11 @@ SendToOutput:
 	for {
 		select {
 		case <-h.closing:
-			h.logger.Info("stop consume claim")
+			h.logger.Info("close called, stop consume claim")
 			break SendToOutput
 
 		case <-h.ctx.Done():
-			h.logger.Info("stop consume claim")
+			h.logger.Info("context cancelled, stop consume claim")
 			break SendToOutput
 
 		case kafkaMsg, ok := <-claim.Messages():
@@ -166,8 +212,10 @@ func (h consumerGroupHandler) waitAckOrNack(
 	nacked <-chan struct{}) error {
 	select {
 	case <-h.closing:
+		h.logger.Info("close called, cancel wait ack or nack")
 		return CancelMessageAckOrNackError
 	case <-h.ctx.Done():
+		h.logger.Info("context cancelled, cancel wait ack or nack")
 		return CancelMessageAckOrNackError
 	case <-acked:
 		sess.MarkMessage(msg, "")

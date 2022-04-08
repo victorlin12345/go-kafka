@@ -10,7 +10,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
-	"github.com/victorlin12345/go-kafka/pkg/pubsub/kafka"
+	"github.com/victorlin12345/go-kafka/pkg/kafka"
 )
 
 func main() {
@@ -47,7 +47,7 @@ func main() {
 	PublishLoop:
 		for i := 0; ; i++ {
 			msg := fakeData(ctx, i)
-			err := p.Publish(ctx, topic, msg)
+			res, err := p.Publish(ctx, topic, msg)
 			if err != nil {
 				if err == kafka.ProducerClosedError {
 					break PublishLoop
@@ -56,18 +56,18 @@ func main() {
 				break PublishLoop
 			}
 
-			logger.Info("send msg: ", string(msg.Payload))
+			logger.Info(fmt.Sprintf("partition: %d offset: %d send msg: %s", res.GetPartition(), res.GetOffset(), string(res.GetPayload())))
 
 			time.Sleep(1 * time.Second)
 		}
 	}
 }
 
-func fakeData(ctx context.Context, i int) *kafka.Message {
+func fakeData(ctx context.Context, i int) kafka.Message {
 	groupID := "user1"
 	metadata := make(map[string]string, 0)
 	metadata[kafka.KeySaramaGroupID] = groupID // to let same groupID message go to same partition
 	payload := []byte(fmt.Sprintf("data%d", i))
 
-	return kafka.NewMessage(ctx, payload, metadata)
+	return kafka.NewMessage(ctx, payload, kafka.WithMetaData(metadata))
 }

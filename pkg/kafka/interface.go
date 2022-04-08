@@ -1,9 +1,9 @@
-package pubsub
+package kafka
 
 import "context"
 
 type Publisher interface {
-	Publish(ctx context.Context, topic string, messages ...Message) error
+	Publish(ctx context.Context, topic string, message Message) (Message, error)
 	Close() error
 }
 type Subscriber interface {
@@ -28,4 +28,14 @@ type Message interface {
 
 	GetMetaData() map[string]string
 	SetMetaData(mp map[string]string)
+
+	GetTopic() string
+	SetTopic(topic string)
+	GetPartition() int32
+	SetPartition(partition int32)
+	GetOffset() int64
+	SetOffset(offset int64)
+
+	GetError() error
+	SetError(err error)
 }

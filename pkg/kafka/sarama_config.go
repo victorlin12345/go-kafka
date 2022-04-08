@@ -15,11 +15,18 @@ type SaramaSubscriberConfig struct {
 
 	// Kafka consumer group (required, can't be empty string)
 	ConsumerGroup string
+
+	// Due to consumerGroup.Consume need to live in infinite loop. We setup a retry interval for it.
+	ReconnectRetrySleep time.Duration
 }
 
 func (c *SaramaSubscriberConfig) setDefault() {
 	if c.OverwriteSaramaConfig == nil {
 		c.OverwriteSaramaConfig = DefaultSaramaSubscriberConfig()
+	}
+
+	if c.ReconnectRetrySleep == 0 {
+		c.ReconnectRetrySleep = time.Second
 	}
 }
 
