@@ -14,60 +14,62 @@ import (
 
 func main() {
 	ctx := context.Background()
+	logger := log.New()
 
 	config := kafka.SaramaSubscriberConfig{
 		Brokers:       []string{"localhost:9091", "localhost:9092"},
 		ConsumerGroup: "cg1",
 	}
 
-	logger := log.New()
-
 	s, err := kafka.NewSaramaSubscriber(config, logger)
-	defer s.Close()
-
-	// Ctrl C to graceful shutdown
-	ch := make(chan os.Signal, 1)
-	go func() {
-		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-		<-ch
-		s.Close()
-	}()
-
 	if err != nil {
 		logger.Error(err)
 	} else {
-		logger.Info("start subscribing...")
+		go subscribeProcess(ctx, logger, "test", s)
+	}
 
-		topic := "test"
-		msgs, err := s.Subscribe(ctx, topic)
-		if err != nil {
-			logger.Error(err)
-		}
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
+	<-sigterm
+	logger.Info("shutdown process start")
 
-	ConsumeLoop:
-		for {
-			select {
-			case msg := <-msgs:
-				if msg == nil {
-					break ConsumeLoop
-				}
-				if msg.GetError() == nil {
-					payload, groupID, partition, offset := getInfo(msg)
-					logger.Info(fmt.Sprintf("msg: %s groupId: %s partition: %s offset %s", payload, groupID, partition, offset))
-					msg.Ack()
-				} else {
-					log.Info("Error:", msg.GetError())
-				}
+	if err := s.Close(); err != nil {
+		logger.Error(fmt.Sprintf("shutdown process failed:%+v", err))
+	}
+}
+
+func subscribeProcess(ctx context.Context, logger *log.Logger, topic string, subscriber kafka.Subscriber) {
+	logger.Info("start subscribing...")
+
+	msgs, err := subscriber.Subscribe(ctx, topic)
+	if err != nil {
+		logger.Error(err)
+	}
+
+MessageLoop:
+	for {
+		select {
+		case msg := <-msgs:
+			// message channel be closed
+			if msg == nil {
+				break MessageLoop
+			}
+			// occur error when consuming
+			if err := msg.GetError(); err != nil {
+				logger.Error(err)
+			} else {
+				printMsgInfo(msg, logger)
+				msg.Ack()
 			}
 		}
 	}
 }
 
-func getInfo(msg kafka.Message) (payload string, groupID string, partition string, offset string) {
-	payload = string(msg.GetPayload())
-	groupID = msg.GetMetaData()[kafka.KeySaramaGroupID]
-	partition = msg.GetMetaData()[kafka.KeySaramaPartition]
-	offset = msg.GetMetaData()[kafka.KeySaramaOffset]
-
-	return
+func printMsgInfo(msg kafka.Message, logger *log.Logger) {
+	payload := string(msg.GetPayload())
+	groupID := msg.GetMetaData()[kafka.KeySaramaGroupID]
+	partition := msg.GetPartition()
+	offset := msg.GetOffset()
+	msgInfo := fmt.Sprintf("msg: %s groupId: %s partition: %d offset %d", payload, groupID, partition, offset)
+	logger.Info(msgInfo)
 }

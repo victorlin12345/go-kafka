@@ -20,6 +20,7 @@ type saramaSubscriber struct {
 	consumeWg      *sync.WaitGroup
 	consumeErrorWg *sync.WaitGroup
 	handlerWg      *sync.WaitGroup
+	closeWg        *sync.WaitGroup
 	lock           sync.Mutex
 	logger         *log.Logger
 }
@@ -50,6 +51,7 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 		consumeWg:      &sync.WaitGroup{},
 		consumeErrorWg: &sync.WaitGroup{},
 		handlerWg:      &sync.WaitGroup{},
+		closeWg:        &sync.WaitGroup{},
 		logger:         logger,
 	}, nil
 }
@@ -66,6 +68,7 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 
 	s.consumeWg.Add(1)
 	s.consumeErrorWg.Add(1)
+	s.closeWg.Add(1)
 
 	// start consuming
 	go s.consumingProcess(ctx, topic, handler)
@@ -155,6 +158,8 @@ ConsumeErrorLoop:
 }
 
 func (s *saramaSubscriber) closingProcess() {
+	defer s.closeWg.Done()
+
 	// consumerGroup.Close() do just once
 	if err := s.consumerGroup.Close(); err != nil {
 		s.logger.Error(err)
@@ -170,8 +175,6 @@ func (s *saramaSubscriber) closingProcess() {
 
 	close(s.output)
 	s.logger.Info("output closed")
-
-	s.logger.Info("subscriber closed")
 }
 
 func newConsumerGroupHandler(ctx context.Context, s *saramaSubscriber) *consumerGroupHandler {
@@ -216,7 +219,7 @@ SendToOutput:
 				break SendToOutput
 			}
 
-			msg := NewMessageBySaramaConsumerMessage(kafkaMsg)
+			msg := NewMessageBySaramaConsumerMessage(h.ctx, kafkaMsg)
 			h.output <- msg
 
 			if err := h.waitAckOrNack(sess, kafkaMsg, msg.Acked(), msg.Nacked()); err != nil {
@@ -262,5 +265,7 @@ func (s *saramaSubscriber) Close() error {
 	close(s.closing)
 	s.closed = true
 
+	s.closeWg.Wait()
+	s.logger.Info("subscriber closed")
 	return nil
 }

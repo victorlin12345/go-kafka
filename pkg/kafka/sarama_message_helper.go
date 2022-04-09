@@ -1,35 +1,31 @@
 package kafka
 
 import (
-	"strconv"
+	"context"
 
 	"github.com/Shopify/sarama"
 )
 
 const (
-	KeySaramaTopic     string = "SaramaMessageTopic"
-	KeySaramaGroupID   string = "SaramaMessageGroupID"
-	KeySaramaPartition string = "SaramaMessagePartition"
-	KeySaramaOffset    string = "SaramaMessageOffset"
-	KeySaramaTimestamp string = "SaramaMessageTimestamp"
+	KeySaramaGroupID string = "SaramaMessageGroupID"
 )
 
-func NewMessageBySaramaConsumerMessage(msg *sarama.ConsumerMessage) Message {
+func NewMessageBySaramaConsumerMessage(ctx context.Context, msg *sarama.ConsumerMessage) Message {
 	metadata := make(map[string]string, len(msg.Headers))
-	metadata[KeySaramaTopic] = msg.Topic
-	metadata[KeySaramaPartition] = strconv.FormatInt(int64(msg.Partition), 10)
-	metadata[KeySaramaOffset] = strconv.FormatInt(msg.Offset, 10)
-	metadata[KeySaramaTimestamp] = msg.Timestamp.String()
 
 	for _, h := range msg.Headers {
 		metadata[string(h.Key)] = string(h.Value)
 	}
 
 	return &message{
-		Payload:  msg.Value,
-		Metadata: metadata,
-		ack:      make(chan struct{}),
-		nack:     make(chan struct{}),
+		ctx:       ctx,
+		ack:       make(chan struct{}),
+		nack:      make(chan struct{}),
+		Payload:   msg.Value,
+		Metadata:  metadata,
+		Topic:     msg.Topic,
+		Partition: msg.Partition,
+		Offset:    msg.Offset,
 	}
 }
 
