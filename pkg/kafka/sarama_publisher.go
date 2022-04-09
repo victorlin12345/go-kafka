@@ -14,7 +14,7 @@ type saramaPublisher struct {
 	producer sarama.SyncProducer
 	logger   *log.Logger
 	closed   bool
-	mutex    sync.Mutex
+	lock     sync.Mutex
 }
 
 // NewPublisher creates a new Kafka Publisher.
@@ -38,8 +38,8 @@ func NewSaramaPublisher(config SaramaPublisherConfig, logger *log.Logger) (Publi
 }
 
 func (p *saramaPublisher) Publish(ctx context.Context, topic string, message Message) (Message, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	if p.closed {
 		return nil, ProducerClosedError
@@ -72,8 +72,8 @@ func (p *saramaPublisher) Publish(ctx context.Context, topic string, message Mes
 }
 
 func (p *saramaPublisher) Close() error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	if p.closed {
 		return nil

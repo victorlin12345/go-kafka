@@ -3,11 +3,11 @@ package kafka
 import "context"
 
 type Publisher interface {
-	Publish(ctx context.Context, topic string, message Message) (Message, error)
+	Publish(ctx context.Context, topic string, message Message) (msg Message, closed error)
 	Close() error
 }
 type Subscriber interface {
-	Subscribe(ctx context.Context, topic string) (<-chan Message, error)
+	Subscribe(ctx context.Context, topic string) (msgs <-chan Message, closed error)
 	Close() error
 }
 
