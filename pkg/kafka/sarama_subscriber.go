@@ -175,6 +175,8 @@ func (s *saramaSubscriber) closingProcess() {
 
 	close(s.output)
 	s.logger.Info("output closed")
+
+	s.logger.Info("subscriber closed")
 }
 
 func newConsumerGroupHandler(ctx context.Context, s *saramaSubscriber) *consumerGroupHandler {
@@ -266,6 +268,5 @@ func (s *saramaSubscriber) Close() error {
 	s.closed = true
 
 	s.closeWg.Wait()
-	s.logger.Info("subscriber closed")
 	return nil
 }

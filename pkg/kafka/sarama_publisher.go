@@ -48,6 +48,7 @@ func (p *saramaPublisher) Publish(ctx context.Context, topic string, message Mes
 	// for context cancel
 	select {
 	case <-ctx.Done():
+		p.logger.Info("publisher closed")
 		return nil, ProducerClosedError
 	default:
 	}
