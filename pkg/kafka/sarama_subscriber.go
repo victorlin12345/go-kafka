@@ -47,9 +47,9 @@ func NewSaramaSubscriber(config SaramaSubscriberConfig, logger *log.Logger) (*sa
 		consumerGroup:  consumerGroup,
 		output:         make(chan Message, 0),
 		closing:        make(chan struct{}),
-		consumeWg:      new(sync.WaitGroup),
-		consumeErrorWg: new(sync.WaitGroup),
-		handlerWg:      new(sync.WaitGroup),
+		consumeWg:      &sync.WaitGroup{},
+		consumeErrorWg: &sync.WaitGroup{},
+		handlerWg:      &sync.WaitGroup{},
 		logger:         logger,
 	}, nil
 }
@@ -64,6 +64,9 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 
 	handler := newConsumerGroupHandler(ctx, s)
 
+	s.consumeWg.Add(1)
+	s.consumeErrorWg.Add(1)
+
 	// start consuming
 	go s.consumingProcess(ctx, topic, handler)
 
@@ -72,6 +75,7 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 
 	// graceful shutdown
 	go func() {
+		s.consumeErrorWg.Wait()
 		s.consumeWg.Wait()
 		select {
 		case <-s.closing:
@@ -85,8 +89,10 @@ func (s *saramaSubscriber) Subscribe(ctx context.Context, topic string) (<-chan 
 }
 
 func (s *saramaSubscriber) consumingProcess(ctx context.Context, topic string, handler *consumerGroupHandler) {
-	defer s.consumeWg.Done()
-	s.consumeWg.Add(1)
+	defer func() {
+		s.logger.Info("leave reconnect loop")
+		s.consumeWg.Done()
+	}()
 
 ReconnectLoop:
 	for {
@@ -99,46 +105,48 @@ ReconnectLoop:
 
 		select {
 		case <-s.closing:
+			s.handlerWg.Wait()
 			s.consumeErrorWg.Wait()
-			s.logger.Info("leave reconnect loop (close called)")
 			break ReconnectLoop
 
 		case <-ctx.Done():
+			s.handlerWg.Wait()
 			s.consumeErrorWg.Wait()
-			s.logger.Info("leave reconnect loop (context cancelled)")
 			break ReconnectLoop
-		default:
-			// pass
-		}
 
-		// default: 1 second to retry
-		time.Sleep(s.config.ReconnectRetrySleep)
-		s.logger.Info("reconnecting")
+		default:
+			// default: 1 second to retry
+			time.Sleep(s.config.ReconnectRetrySleep)
+			s.logger.Info("reconnecting")
+		}
 	}
 }
 
 func (s *saramaSubscriber) handleConsumeError(ctx context.Context, handler *consumerGroupHandler) {
-	defer s.consumeErrorWg.Done()
-	s.consumeErrorWg.Add(1)
+	defer func() {
+		s.logger.Info("leave consume error loop")
+		s.consumeErrorWg.Done()
+	}()
 
-	// when consume life-cycle occur error, consumerGroup.Errors return errs
+	// when config.OverwriteSaramaConfig.Consumer.Return.Errors is true
+	// it will return error when consume life-cycle occur error
 	errs := s.consumerGroup.Errors()
 ConsumeErrorLoop:
 	for {
 		select {
 		case <-s.closing:
 			s.handlerWg.Wait()
-			s.logger.Info("leave consume error loop (close called)")
 			break ConsumeErrorLoop
 
 		case <-ctx.Done():
 			s.handlerWg.Wait()
-			s.logger.Info("leave consume group error loop (context cancelled)")
 			break ConsumeErrorLoop
+
 		case err := <-errs:
 			if err == nil {
 				continue
 			}
+
 			msg := NewMessage(ctx, []byte("errors occurs during consumer life-cycle"))
 			msg.SetError(err)
 			s.output <- msg
@@ -162,6 +170,8 @@ func (s *saramaSubscriber) closingProcess() {
 
 	close(s.output)
 	s.logger.Info("output closed")
+
+	s.logger.Info("subscriber closed")
 }
 
 func newConsumerGroupHandler(ctx context.Context, s *saramaSubscriber) *consumerGroupHandler {
@@ -227,11 +237,14 @@ func (h consumerGroupHandler) waitAckOrNack(
 	case <-h.closing:
 		h.logger.Info("cancel wait ack or nack (close called)")
 		return CancelMessageAckOrNackError
+
 	case <-h.ctx.Done():
 		h.logger.Info("cancel wait ack or nack (context cancelled)")
 		return CancelMessageAckOrNackError
+
 	case <-acked:
 		sess.MarkMessage(msg, "")
+
 	case <-nacked:
 		// don't mark message
 	}
