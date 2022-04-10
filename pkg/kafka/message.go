@@ -36,8 +36,10 @@ type message struct {
 	nack        chan struct{}
 	ackMutex    sync.Mutex
 	ackSentType ackType // 用於判斷送過與否
+	uuid        string
 	Payload     []byte
 	Metadata    map[string]string
+	timestamp   int64
 	Topic       string
 	Partition   int32
 	Offset      int64
@@ -115,6 +117,14 @@ func (m *message) SetContext(ctx context.Context) {
 	m.ctx = ctx
 }
 
+func (m *message) GetUUID() string {
+	return m.uuid
+}
+
+func (m *message) SetUUID(t string) {
+	m.uuid = t
+}
+
 func (m *message) GetPayload() []byte {
 	return m.Payload
 }
@@ -129,6 +139,14 @@ func (m *message) GetMetaData() map[string]string {
 
 func (m *message) SetMetaData(d map[string]string) {
 	m.Metadata = d
+}
+
+func (m *message) GetTimestamp() int64 {
+	return m.timestamp
+}
+
+func (m *message) SetTimestamp(v int64) {
+	m.timestamp = v
 }
 
 func (m *message) GetTopic() string {

@@ -23,11 +23,18 @@ type Message interface {
 	Nack() bool
 	Nacked() <-chan struct{}
 
+	GetUUID() string
+	SetUUID(uuid string)
+
 	GetPayload() []byte
 	SetPayload(b []byte)
 
 	GetMetaData() map[string]string
 	SetMetaData(mp map[string]string)
+
+	// version usage
+	GetTimestamp() int64
+	SetTimestamp(version int64)
 
 	GetTopic() string
 	SetTopic(topic string)
