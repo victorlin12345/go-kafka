@@ -1,14 +1,26 @@
 package kafka
 
 type messageOptions struct {
+	uuid      string
 	metadata  map[string]string
 	topic     string
 	partition int32
 	offset    int64
+	timestamp int64
 }
 
 type messageOption interface {
 	apply(o *messageOptions)
+}
+
+type uuidOption string
+
+func (uo uuidOption) apply(o *messageOptions) {
+	o.uuid = string(uo)
+}
+
+func WithUUID(uuid string) messageOption {
+	return uuidOption(uuid)
 }
 
 type metadataOption map[string]string
@@ -49,4 +61,14 @@ func (oo offsetOption) apply(o *messageOptions) {
 
 func WithOffset(o int64) messageOption {
 	return offsetOption(o)
+}
+
+type timestampOption int64
+
+func (to timestampOption) apply(o *messageOptions) {
+	o.timestamp = int64(to)
+}
+
+func WithTimestamp(timestamp int64) messageOption {
+	return timestampOption(timestamp)
 }
