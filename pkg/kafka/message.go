@@ -25,8 +25,13 @@ func NewMessage(ctx context.Context, payload []byte, opts ...messageOption) Mess
 		ack:         make(chan struct{}),
 		nack:        make(chan struct{}),
 		ackSentType: unsent,
+		uuid:        options.uuid,
 		Payload:     payload,
 		Metadata:    options.metadata,
+		Topic:       options.topic,
+		Partition:   options.partition,
+		Offset:      options.offset,
+		timestamp:   options.timestamp,
 	}
 }
 
